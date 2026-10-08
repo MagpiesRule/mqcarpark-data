@@ -1,0 +1,44 @@
+name: Counting check
+
+# Every 15 minutes, around the clock: take one reading from vpermit, update the
+# rolling 24-hour record in reliability.json, and publish it on the "data" branch.
+# The "data" branch always holds a single commit (it is overwritten each run),
+# so the repo doesn't grow. Public repo, so these runs don't use any Actions minutes.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}   # lets you run it by hand from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: counting-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Get the current record
+        run: git show origin/data:reliability.json > reliability.json 2>/dev/null || echo "No record yet; starting fresh"
+      - name: Take a reading
+        run: node check.js reliability.json
+      - name: Publish to the data branch
+        run: |
+          git config user.name "mqcarpark-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp reliability.json /tmp/reliability.json
+          git checkout --orphan data-publish
+          git rm -rf --cached . > /dev/null
+          cp /tmp/reliability.json reliability.json
+          git add -f reliability.json
+          git commit -q -m "Latest counter record $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f origin HEAD:data
